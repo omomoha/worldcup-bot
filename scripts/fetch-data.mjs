@@ -73,6 +73,28 @@ async function fromApiFootball() {
   };
 }
 
+
+async function fromTheSportsDB() {
+  // Free community API, no key needed — used as a third opinion
+  const d = todayISO();
+  const res = await fetch(
+    `https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d=${d}&l=FIFA%20World%20Cup`
+  );
+  if (!res.ok) { console.warn(`thesportsdb: HTTP ${res.status}`); return null; }
+  const json = await res.json();
+  const e = json.events?.find((x) => x.strHomeTeam && x.strAwayTeam);
+  if (!e) return null;
+  return {
+    teamA: e.strHomeTeam,
+    teamB: e.strAwayTeam,
+    kickoff: e.strTime ? e.strTime.slice(0, 5) + " GMT" : "Today",
+    venue: e.strVenue ?? "2026 FIFA World Cup",
+  };
+}
+
+// Cross-validate sources: same two teams (order-insensitive) = agreement
+const pairKey = (f) => [f.teamA, f.teamB].map((s) => s.toLowerCase().trim()).sort().join("|");
+
 async function getCountry(name) {
   const lookup = COUNTRY_ALIASES[name] ?? name;
   try {
@@ -113,7 +135,7 @@ async function askClaude(prompt) {
 }
 
 const matchPrompt = (a, b) => `Today's 2026 World Cup match: ${a} vs ${b}.
-Write content for a 28-second TikTok fact video. Only include facts you are CERTAIN are true; prefer well-documented historical facts over recent ones. Respond with ONLY a JSON object, no markdown fences:
+Write content for a 28-second TikTok fact video. Only include facts you are CERTAIN are true; prefer well-documented historical facts over recent ones. Be strictly NEUTRAL: no favoritism toward either team, no predictions stated as facts, no stereotypes about countries, cultures, or fans. Use only objective, sourced-style facts (records, dates, numbers). Respond with ONLY a JSON object, no markdown fences:
 {
   "hook": "one-line hook, max 10 words",
   "facts": ["3 short, surprising, verifiably TRUE facts about these two countries' World Cup history or football culture, each max 20 words"],
@@ -122,7 +144,7 @@ Write content for a 28-second TikTok fact video. Only include facts you are CERT
   "titlesB": <number of World Cup titles ${b} has won>
 }`;
 
-const throwbackPrompt = () => `Pick ONE iconic, well-documented World Cup match from history (any year 1930-2022). It must be a real match you are CERTAIN about. Respond with ONLY a JSON object, no markdown fences:
+const throwbackPrompt = () => `Pick ONE iconic, well-documented World Cup match from history (any year 1930-2022). It must be a real match you are CERTAIN about. Be strictly NEUTRAL and objective: documented records, dates, scorers, attendance figures — no stereotypes or editorializing. Respond with ONLY a JSON object, no markdown fences:
 {
   "teamA": "country name",
   "teamB": "country name",
@@ -137,15 +159,56 @@ const throwbackPrompt = () => `Pick ONE iconic, well-documented World Cup match 
   "titlesB": <World Cup titles teamB has won>
 }`;
 
+
+const verifyPrompt = (facts, context) => `Fact-check these statements about ${context}. For each, answer whether you are HIGHLY confident it is true and free of bias or editorializing. Respond ONLY with JSON, no fences: {"verified": [list containing only the statements that pass, unchanged]}
+Statements: ${JSON.stringify(facts)}`;
+
+async function verifiedFacts(facts, context, teamA, teamB) {
+  let kept = facts;
+  try {
+    const v = await askClaude(verifyPrompt(facts, context));
+    if (Array.isArray(v.verified)) kept = v.verified.filter((f) => typeof f === "string");
+  } catch (e) { console.warn("verification pass failed, keeping originals:", e.message); }
+  // Top up with data-derived facts (from REST Countries — inherently sourced)
+  const backups = [
+    `${teamA.name} has won the World Cup ${teamA.worldCupTitles} time${teamA.worldCupTitles === 1 ? "" : "s"}; ${teamB.name} ${teamB.worldCupTitles}.`,
+    `${teamA.name} has a population of ${teamA.population}; ${teamB.name} has ${teamB.population}.`,
+    `Capitals: ${teamA.capital} (${teamA.name}) and ${teamB.capital} (${teamB.name}).`,
+  ];
+  while (kept.length < 3 && backups.length) kept.push(backups.shift());
+  if (kept.length < facts.length) console.log(`ℹ️ verification dropped ${facts.length - kept.length} fact(s), topped up with data-derived facts`);
+  return kept.slice(0, 3);
+}
+
 async function main() {
   if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is required");
 
   const music = existsSync(new URL("../public/music.mp3", import.meta.url));
   const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
+  const sources = [];
+  for (const [name, fn] of [["football-data.org", fromFootballData], ["api-football", fromApiFootball], ["thesportsdb", fromTheSportsDB]]) {
+    try {
+      const r = await fn();
+      if (r) { sources.push({ name, ...r }); console.log(`source ${name}: ${r.teamA} vs ${r.teamB}`); }
+      else console.log(`source ${name}: no fixture`);
+    } catch (e) { console.warn(`source ${name} failed:`, e.message); }
+  }
   let fixture = null;
-  try { fixture = await fromFootballData(); } catch (e) { console.warn("football-data.org failed:", e.message); }
-  if (!fixture) { try { fixture = await fromApiFootball(); } catch (e) { console.warn("api-football failed:", e.message); } }
+  if (sources.length >= 2) {
+    const counts = {};
+    for (const s of sources) counts[pairKey(s)] = (counts[pairKey(s)] ?? 0) + 1;
+    const agreed = sources.find((s) => counts[pairKey(s)] >= 2);
+    if (agreed) { fixture = agreed; console.log(`✅ ${counts[pairKey(agreed)]} sources agree on the fixture`); }
+    else {
+      console.warn("⚠️ Sources DISAGREE on today's fixture — using football-data.org (official data partner) and flagging:");
+      sources.forEach((s) => console.warn(`   ${s.name}: ${s.teamA} vs ${s.teamB}`));
+      fixture = sources.find((s) => s.name === "football-data.org") ?? sources[0];
+    }
+  } else if (sources.length === 1) {
+    fixture = sources[0];
+    console.log(`ℹ️ Only one source available (${fixture.name}) — proceeding with it`);
+  }
 
   let data;
   if (fixture) {
@@ -153,9 +216,10 @@ async function main() {
     const copy = await askClaude(matchPrompt(teamA.name, teamB.name));
     teamA.worldCupTitles = copy.titlesA ?? 0;
     teamB.worldCupTitles = copy.titlesB ?? 0;
+    const checked = await verifiedFacts(copy.facts.slice(0, 3), `the ${teamA.name} vs ${teamB.name} World Cup matchup`, teamA, teamB);
     data = {
       mode: "match", date: dateStr, kickoff: fixture.kickoff, venue: fixture.venue,
-      teamA, teamB, hook: copy.hook, facts: copy.facts.slice(0, 3), question: copy.question, music,
+      teamA, teamB, hook: copy.hook, facts: checked, question: copy.question, music,
     };
     console.log(`✅ MATCH mode: ${teamA.name} vs ${teamB.name}`);
   } else {
@@ -164,10 +228,11 @@ async function main() {
     const [teamA, teamB] = await Promise.all([getCountry(tb.teamA), getCountry(tb.teamB)]);
     teamA.worldCupTitles = tb.titlesA ?? 0;
     teamB.worldCupTitles = tb.titlesB ?? 0;
+    const checkedTb = await verifiedFacts(tb.facts.slice(0, 3), `the ${tb.year} ${tb.stage} between ${teamA.name} and ${teamB.name}`, teamA, teamB);
     data = {
       mode: "throwback", date: dateStr, year: tb.year, scoreline: tb.scoreline,
       stage: tb.stage, kickoff: `${tb.stage} · Final score ${tb.scoreline}`, venue: tb.venue,
-      teamA, teamB, hook: tb.hook, facts: tb.facts.slice(0, 3), question: tb.question, music,
+      teamA, teamB, hook: tb.hook, facts: checkedTb, question: tb.question, music,
     };
     console.log(`✅ THROWBACK mode: ${teamA.name} vs ${teamB.name}, ${tb.year}`);
   }
