@@ -167,11 +167,12 @@ const RULES = `RULES: Only state things you are CERTAIN are true and well-docume
 const matchPrompt = (a, b) => `Today's 2026 World Cup match: ${a} vs ${b}. Write content for a 28-second TikTok video. ${RULES}
 Respond with ONLY a JSON object, no markdown fences:
 {
-  "hook": "one-line hook, max 10 words",
+  "hook": "a scroll-stopping curiosity hook, max 8 words — tension, a number, or a rivalry angle. NOT just the team names.",
+  "tease": "a 3-5 word retention tease pointing at fact #3, e.g. wait for #3",
   "statsA": ["2 short FOOTBALL stat lines about ${a}, max 7 words each, e.g. best World Cup finish, appearances, famous record"],
   "statsB": ["2 short FOOTBALL stat lines about ${b}, max 7 words each"],
-  "facts": ["3 short, surprising, verifiably TRUE football facts about these nations' World Cup history, each max 20 words"],
-  "question": "a fun prediction question, max 6 words",
+  "facts": ["3 short, verifiably TRUE football facts about these nations' World Cup history, max 20 words each, ORDERED from least to most surprising — #3 must be the jaw-dropper"],
+  "question": "a comment-bait question asking for a score prediction or hot take, max 6 words",
   "caption": "a TikTok caption written like a real football fan typed it on their phone — casual, energetic, lowercase ok, 1-2 sentences plus 3-4 hashtags including #WorldCup2026. No corporate tone, no quotation marks."
 }`;
 
@@ -180,10 +181,11 @@ Respond with ONLY a JSON object, no markdown fences:
 {
   "teamA": "country", "teamB": "country", "year": <year>, "scoreline": "e.g. 2-1 (a.e.t.)",
   "stage": "e.g. Final, Semi-final", "venue": "stadium, city",
-  "hook": "one-line hook, max 10 words",
+  "hook": "a scroll-stopping curiosity hook, max 8 words — tension, a number, or a rivalry angle. NOT just the team names.",
+  "tease": "a 3-5 word retention tease pointing at fact #3, e.g. wait for #3",
   "statsA": ["2 short FOOTBALL stat lines about teamA, max 7 words each"],
   "statsB": ["2 short FOOTBALL stat lines about teamB, max 7 words each"],
-  "facts": ["3 short, specific, verifiably TRUE facts about that match with names/numbers, each max 20 words"],
+  "facts": ["3 short, specific, verifiably TRUE facts about that match with names/numbers, max 20 words each, ORDERED least to most surprising"],
   "question": "engagement question about the match, max 8 words",
   "caption": "TikTok caption like a real football fan typed it — casual throwback energy, 1-2 sentences plus 3-4 hashtags including #WorldCup. No quotation marks."
 }`;
@@ -251,7 +253,7 @@ async function main() {
     while (facts.length < 3) facts.push(`${teamA.name} and ${teamB.name} meet today at the 2026 World Cup — ${fixture.venue}.`);
     data = {
       mode: "match", date: dateStr, kickoff: fixture.kickoff, venue: fixture.venue,
-      teamA, teamB, hook: copy.hook, facts: facts.slice(0, 3), question: copy.question,
+      teamA, teamB, hook: copy.hook, tease: copy.tease ?? "wait for #3 🤯", facts: facts.slice(0, 3), question: copy.question,
       caption: copy.caption ?? `${teamA.name} vs ${teamB.name} today 👀 who's taking it? #WorldCup2026 #football`,
       music,
     };
@@ -268,7 +270,7 @@ async function main() {
     data = {
       mode: "throwback", date: dateStr, year: tb.year, scoreline: tb.scoreline, stage: tb.stage,
       kickoff: `${tb.stage} · Final score ${tb.scoreline}`, venue: tb.venue,
-      teamA, teamB, hook: tb.hook, facts: facts.slice(0, 3), question: tb.question,
+      teamA, teamB, hook: tb.hook, tease: tb.tease ?? "#3 is wild 🤯", facts: facts.slice(0, 3), question: tb.question,
       caption: tb.caption ?? `throwback to ${teamA.name} vs ${teamB.name}, ${tb.year} 🔥 #WorldCup #throwback`,
       music,
     };
