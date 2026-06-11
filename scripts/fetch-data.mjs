@@ -14,7 +14,7 @@ import { writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
 const { FOOTBALL_DATA_TOKEN, API_FOOTBALL_KEY, ANTHROPIC_API_KEY } = process.env;
-const OUT = new URL("../data/today.json", import.meta.url);
+const OUT = new URL("../data/matches.json", import.meta.url);
 
 // ---- Built-in FIFA nations dataset: flag code, jersey color, WC titles ----
 // Titles are settled historical record (through 2022). Flags via flagcdn ISO codes.
@@ -86,7 +86,9 @@ const TEAMS = {
   "Russia":        { code: "ru",     color: "#D52B1E", titles: 0 },
 };
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const DATE_OFFSET = parseInt(process.env.DATE_OFFSET ?? "0", 10);
+const targetDate = () => { const d = new Date(); d.setUTCDate(d.getUTCDate() + DATE_OFFSET); return d; };
+const todayISO = () => targetDate().toISOString().slice(0, 10);
 
 function getTeam(rawName) {
   const name = rawName.replace(/ U2[0-9]| W$/g, "").trim();
@@ -107,13 +109,13 @@ async function fromFootballData() {
     { headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN } }
   );
   if (!res.ok) { console.warn(`football-data.org: HTTP ${res.status}`); return null; }
-  const m = (await res.json()).matches?.find((x) => x.homeTeam?.name && x.awayTeam?.name);
-  if (!m) return null;
-  return {
+  const ms = ((await res.json()).matches ?? []).filter((x) => x.homeTeam?.name && x.awayTeam?.name);
+  return ms.map((m) => ({
     teamA: m.homeTeam.name, teamB: m.awayTeam.name,
+    kickoffISO: m.utcDate,
     kickoff: new Date(m.utcDate).toUTCString().slice(17, 22) + " GMT",
     venue: m.venue ?? "2026 FIFA World Cup",
-  };
+  }));
 }
 
 async function fromApiFootball() {
@@ -125,13 +127,12 @@ async function fromApiFootball() {
   if (!res.ok) { console.warn(`api-football: HTTP ${res.status}`); return null; }
   const json = await res.json();
   if (json.errors && Object.keys(json.errors).length) console.warn("api-football errors:", JSON.stringify(json.errors));
-  const fx = json.response?.[0];
-  if (!fx) return null;
-  return {
+  return (json.response ?? []).map((fx) => ({
     teamA: fx.teams.home.name, teamB: fx.teams.away.name,
+    kickoffISO: fx.fixture.date,
     kickoff: new Date(fx.fixture.date).toUTCString().slice(17, 22) + " GMT",
     venue: `${fx.fixture.venue?.name ?? ""}${fx.fixture.venue?.city ? ", " + fx.fixture.venue.city : ""}` || "2026 FIFA World Cup",
-  };
+  }));
 }
 
 async function fromTheSportsDB() {
@@ -139,13 +140,13 @@ async function fromTheSportsDB() {
     `https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d=${todayISO()}&l=FIFA%20World%20Cup`
   );
   if (!res.ok) { console.warn(`thesportsdb: HTTP ${res.status}`); return null; }
-  const e = (await res.json()).events?.find((x) => x.strHomeTeam && x.strAwayTeam);
-  if (!e) return null;
-  return {
+  const es = ((await res.json()).events ?? []).filter((x) => x.strHomeTeam && x.strAwayTeam);
+  return es.map((e) => ({
     teamA: e.strHomeTeam, teamB: e.strAwayTeam,
-    kickoff: e.strTime ? e.strTime.slice(0, 5) + " GMT" : "Today",
+    kickoffISO: `${todayISO()}T${e.strTime ?? "12:00:00"}Z`,
+    kickoff: e.strTime ? e.strTime.slice(0, 5) + " GMT" : "Match day",
     venue: e.strVenue ?? "2026 FIFA World Cup",
-  };
+  }));
 }
 
 const pairKey = (f) => [f.teamA, f.teamB].map((s) => s.toLowerCase().trim()).sort().join("|");
@@ -215,51 +216,60 @@ async function main() {
   if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is required");
 
   const music = existsSync(new URL("../public/music.mp3", import.meta.url));
-  const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  const dateStr = targetDate().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
-  // ---- Multi-source fixture with consensus ----
-  const sources = [];
+  // ---- Multi-source fixtures with per-match consensus ----
+  const bySource = {};
   for (const [name, fn] of [["football-data.org", fromFootballData], ["api-football", fromApiFootball], ["thesportsdb", fromTheSportsDB]]) {
     try {
-      const r = await fn();
-      if (r) { sources.push({ name, ...r }); console.log(`source ${name}: ${r.teamA} vs ${r.teamB}`); }
-      else console.log(`source ${name}: no fixture`);
-    } catch (e) { console.warn(`source ${name} failed:`, e.message); }
+      const list = (await fn()) ?? [];
+      bySource[name] = list;
+      console.log(`source ${name}: ${list.length} fixture(s)` + (list.length ? " — " + list.map((f) => `${f.teamA} vs ${f.teamB}`).join("; ") : ""));
+    } catch (e) { console.warn(`source ${name} failed:`, e.message); bySource[name] = []; }
   }
-  let fixture = null;
-  if (sources.length >= 2) {
-    const counts = {};
-    for (const s of sources) counts[pairKey(s)] = (counts[pairKey(s)] ?? 0) + 1;
-    const agreed = sources.find((s) => counts[pairKey(s)] >= 2);
-    if (agreed) { fixture = agreed; console.log(`✅ ${counts[pairKey(agreed)]} sources agree on the fixture`); }
-    else {
-      console.warn("⚠️ Sources DISAGREE — using football-data.org and flagging:");
-      sources.forEach((s) => console.warn(`   ${s.name}: ${s.teamA} vs ${s.teamB}`));
-      fixture = sources.find((s) => s.name === "football-data.org") ?? sources[0];
+  const reporting = Object.values(bySource).filter((l) => l.length > 0).length;
+  const votes = {};
+  for (const [name, list] of Object.entries(bySource)) {
+    for (const f of list) {
+      const k = pairKey(f);
+      votes[k] ??= { count: 0, fixture: null };
+      votes[k].count += 1;
+      // prefer football-data.org's version of the details
+      if (!votes[k].fixture || name === "football-data.org") votes[k].fixture = f;
     }
-  } else if (sources.length === 1) {
-    fixture = sources[0];
-    console.log(`ℹ️ Only one source available (${fixture.name})`);
   }
+  let fixtures = Object.values(votes)
+    .filter((v) => (reporting >= 2 ? v.count >= 2 : true))
+    .map((v) => v.fixture)
+    .sort((a, b) => (a.kickoffISO ?? "").localeCompare(b.kickoffISO ?? ""));
+  const dropped = Object.values(votes).length - fixtures.length;
+  if (dropped > 0) console.warn(`⚠️ ${dropped} fixture(s) reported by only one source were dropped (no consensus)`);
+  console.log(`✅ ${fixtures.length} confirmed fixture(s) for ${todayISO()}`);
 
-  let data;
-  if (fixture) {
-    const teamA = getTeam(fixture.teamA);
-    const teamB = getTeam(fixture.teamB);
-    const copy = await askClaude(matchPrompt(teamA.name, teamB.name));
-    teamA.stats = [titleLine(teamA), ...(await verified(copy.statsA ?? [], `${teamA.name}'s football record`))].slice(0, 3);
-    teamB.stats = [titleLine(teamB), ...(await verified(copy.statsB ?? [], `${teamB.name}'s football record`))].slice(0, 3);
-    const facts = await verified(copy.facts.slice(0, 3), `the ${teamA.name} vs ${teamB.name} World Cup matchup`);
-    while (facts.length < 3) facts.push(`${teamA.name} and ${teamB.name} meet today at the 2026 World Cup — ${fixture.venue}.`);
-    data = {
-      mode: "match", date: dateStr, kickoff: fixture.kickoff, venue: fixture.venue,
-      teamA, teamB, hook: copy.hook, tease: copy.tease ?? "wait for #3 🤯", facts: facts.slice(0, 3), question: copy.question,
-      caption: copy.caption ?? `${teamA.name} vs ${teamB.name} today 👀 who's taking it? #WorldCup2026 #football`,
-      music,
-    };
-    console.log(`✅ MATCH mode: ${teamA.name} vs ${teamB.name}`);
+  const SKINS = ["pitch", "electric", "heat"];
+  const matches = [];
+
+  if (fixtures.length > 0) {
+    for (let i = 0; i < fixtures.length; i++) {
+      const fixture = fixtures[i];
+      const teamA = getTeam(fixture.teamA);
+      const teamB = getTeam(fixture.teamB);
+      const copy = await askClaude(matchPrompt(teamA.name, teamB.name));
+      teamA.stats = [titleLine(teamA), ...(await verified(copy.statsA ?? [], `${teamA.name}'s football record`))].slice(0, 3);
+      teamB.stats = [titleLine(teamB), ...(await verified(copy.statsB ?? [], `${teamB.name}'s football record`))].slice(0, 3);
+      const facts = await verified(copy.facts.slice(0, 3), `the ${teamA.name} vs ${teamB.name} World Cup matchup`);
+      while (facts.length < 3) facts.push(`${teamA.name} and ${teamB.name} meet at the 2026 World Cup — ${fixture.venue}.`);
+      matches.push({
+        mode: "match", skin: SKINS[i % SKINS.length], date: dateStr, kickoff: fixture.kickoff, venue: fixture.venue,
+        teamA, teamB, hook: copy.hook, tease: copy.tease ?? "wait for #3 🤯",
+        facts: facts.slice(0, 3), question: copy.question,
+        caption: copy.caption ?? `${teamA.name} vs ${teamB.name} 👀 who's taking it? #WorldCup2026 #football`,
+        music,
+      });
+      console.log(`✅ video ${i + 1}: ${teamA.name} vs ${teamB.name} [skin: ${SKINS[i % SKINS.length]}]`);
+    }
   } else {
-    console.log("ℹ️ No fixture from any source — THROWBACK mode");
+    console.log("ℹ️ No fixtures from any source — THROWBACK mode");
     const tb = await askClaude(throwbackPrompt());
     const teamA = getTeam(tb.teamA);
     const teamB = getTeam(tb.teamB);
@@ -267,17 +277,18 @@ async function main() {
     teamB.stats = [titleLine(teamB), ...(await verified(tb.statsB ?? [], `${teamB.name}'s football record`))].slice(0, 3);
     const facts = await verified(tb.facts.slice(0, 3), `the ${tb.year} ${tb.stage} between ${teamA.name} and ${teamB.name}`);
     if (facts.length < 2) throw new Error("Throwback facts failed verification — refusing to publish uncertain content");
-    data = {
-      mode: "throwback", date: dateStr, year: tb.year, scoreline: tb.scoreline, stage: tb.stage,
+    matches.push({
+      mode: "throwback", skin: "archive", date: dateStr, year: tb.year, scoreline: tb.scoreline, stage: tb.stage,
       kickoff: `${tb.stage} · Final score ${tb.scoreline}`, venue: tb.venue,
-      teamA, teamB, hook: tb.hook, tease: tb.tease ?? "#3 is wild 🤯", facts: facts.slice(0, 3), question: tb.question,
+      teamA, teamB, hook: tb.hook, tease: tb.tease ?? "#3 is wild 🤯",
+      facts: facts.slice(0, 3), question: tb.question,
       caption: tb.caption ?? `throwback to ${teamA.name} vs ${teamB.name}, ${tb.year} 🔥 #WorldCup #throwback`,
       music,
-    };
-    console.log(`✅ THROWBACK mode: ${teamA.name} vs ${teamB.name}, ${tb.year}`);
+    });
+    console.log(`✅ THROWBACK: ${teamA.name} vs ${teamB.name}, ${tb.year}`);
   }
 
-  await writeFile(OUT, JSON.stringify(data, null, 2));
+  await writeFile(OUT, JSON.stringify(matches, null, 2));
 }
 
 main().catch((e) => {

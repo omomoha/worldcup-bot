@@ -27,6 +27,7 @@ export type Team = {
 
 export type MatchData = {
   mode: "match" | "throwback";
+  skin?: string; // pitch | electric | heat | archive
   date: string;
   year?: number;
   scoreline?: string;
@@ -44,26 +45,38 @@ export type MatchData = {
 };
 
 // ---------- Themes ----------
+// Rotating skins so consecutive videos never look identical.
+// "pitch" = night grass + gold · "electric" = midnight + cyan · "heat" = ember + orange
 const THEMES = {
-  match: {
+  pitch: {
     bg: "radial-gradient(120% 80% at 50% 0%, #0A2E20 0%, #051A11 75%)",
-    base: "#051A11",
-    text: "#F7F4EC",
-    accent: "#E8B83A",
-    line: "rgba(247,244,236,0.18)",
-    factLabel: "DID YOU KNOW?",
-    grain: false,
+    base: "#051A11", text: "#F7F4EC", accent: "#E8B83A",
+    line: "rgba(247,244,236,0.18)", factLabel: "DID YOU KNOW?",
+    grain: false, flip: false, cardRadius: 24,
   },
-  throwback: {
+  electric: {
+    bg: "radial-gradient(120% 80% at 50% 100%, #101A3E 0%, #05070F 75%)",
+    base: "#05070F", text: "#EEF4FF", accent: "#4EE1FF",
+    line: "rgba(238,244,255,0.16)", factLabel: "DID YOU KNOW?",
+    grain: false, flip: true, cardRadius: 0,
+  },
+  heat: {
+    bg: "radial-gradient(120% 80% at 0% 0%, #3A1208 0%, #170502 75%)",
+    base: "#170502", text: "#FFF3E8", accent: "#FF7A3C",
+    line: "rgba(255,243,232,0.16)", factLabel: "DID YOU KNOW?",
+    grain: false, flip: false, cardRadius: 48,
+  },
+  archive: {
     bg: "radial-gradient(120% 80% at 50% 0%, #2A2118 0%, #16110B 75%)",
-    base: "#16110B",
-    text: "#F2E8D5",
-    accent: "#D6502B",
-    line: "rgba(242,232,213,0.16)",
-    factLabel: "FROM THE ARCHIVE",
-    grain: true,
+    base: "#16110B", text: "#F2E8D5", accent: "#D6502B",
+    line: "rgba(242,232,213,0.16)", factLabel: "FROM THE ARCHIVE",
+    grain: true, flip: false, cardRadius: 6,
   },
 } as const;
+
+export type Skin = keyof typeof THEMES;
+const getTheme = (data: MatchData) =>
+  data.mode === "throwback" ? THEMES.archive : THEMES[(data.skin as Skin) ?? "pitch"] ?? THEMES.pitch;
 
 const flagUrl = (code: string) => `https://flagcdn.com/w640/${code}.png`;
 
@@ -126,7 +139,7 @@ const PopWords: React.FC<{ text: string; style: React.CSSProperties; stagger?: n
 const SceneHook: React.FC<{ data: MatchData }> = ({ data }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const t = THEMES[data.mode];
+  const t = getTheme(data);
   const sub = spring({ frame: frame - 6, fps, config: { damping: 200 } });
   const teaseIn = spring({ frame: frame - 35, fps, config: { damping: 9, mass: 0.5 } });
   const wobble = Math.sin(frame / 4) * teaseIn * 2;
@@ -163,7 +176,7 @@ const SceneHook: React.FC<{ data: MatchData }> = ({ data }) => {
 const SceneVersus: React.FC<{ data: MatchData }> = ({ data }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const t = THEMES[data.mode];
+  const t = getTheme(data);
   const slideA = spring({ frame, fps, config: { damping: 200 } });
   const slideB = spring({ frame: frame - 8, fps, config: { damping: 200 } });
   const vsPunch = spring({ frame: frame - 14, fps, config: { damping: 8, mass: 0.7 } });
@@ -172,7 +185,9 @@ const SceneVersus: React.FC<{ data: MatchData }> = ({ data }) => {
     <div
       style={{
         position: "absolute", inset: 0,
-        clipPath: top ? "polygon(0 0, 100% 0, 100% 38%, 0 62%)" : "polygon(0 62%, 100% 38%, 100% 100%, 0 100%)",
+        clipPath: top
+          ? (t.flip ? "polygon(0 0, 100% 0, 100% 62%, 0 38%)" : "polygon(0 0, 100% 0, 100% 38%, 0 62%)")
+          : (t.flip ? "polygon(0 38%, 100% 62%, 100% 100%, 0 100%)" : "polygon(0 62%, 100% 38%, 100% 100%, 0 100%)"),
         background: `linear-gradient(${top ? 160 : 340}deg, ${team.color}${data.mode === "throwback" ? "88" : "cc"}, ${t.base})`,
         transform: `translateX(${(top ? -1 : 1) * (1 - slide) * 1080}px)`,
         filter: data.mode === "throwback" ? "saturate(0.7) sepia(0.25)" : undefined,
@@ -206,7 +221,7 @@ const SceneVersus: React.FC<{ data: MatchData }> = ({ data }) => {
       <div
         style={{
           position: "absolute", top: "50%", left: "50%",
-          transform: `translate(-50%, -50%) rotate(-8deg) scale(${0.5 + vsPunch * 0.6})`,
+          transform: `translate(-50%, -50%) rotate(${t.flip ? 8 : -8}deg) scale(${0.5 + vsPunch * 0.6})`,
           fontFamily: DISPLAY, fontSize: data.mode === "throwback" ? 125 : 190,
           color: t.accent, textShadow: "0 10px 40px rgba(0,0,0,0.6)", whiteSpace: "nowrap",
         }}
@@ -222,7 +237,7 @@ const SceneVersus: React.FC<{ data: MatchData }> = ({ data }) => {
 const FactCard: React.FC<{ data: MatchData; fact: string; index: number }> = ({ data, fact, index }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const t = THEMES[data.mode];
+  const t = getTheme(data);
   const rise = spring({ frame, fps, config: { damping: 200 } });
   const isFinale = index === 2;
   const shake = isFinale ? Math.sin(frame / 1.6) * interpolate(frame, [0, 10, 25], [4, 4, 0], { extrapolateRight: "clamp" }) : 0;
@@ -249,7 +264,7 @@ const FactCard: React.FC<{ data: MatchData; fact: string; index: number }> = ({ 
         style={{
           width: 880, background: "rgba(255,255,255,0.05)",
           border: `${isFinale ? 5 : 3}px ${data.mode === "throwback" ? "dashed" : "solid"} ${accent}`,
-          borderRadius: data.mode === "throwback" ? 6 : 24, padding: "60px 56px",
+          borderRadius: t.cardRadius, padding: "60px 56px",
           transform: `translateY(${(1 - rise) * 300}px) translateX(${shake}px)`, opacity: rise,
         }}
       >
@@ -269,7 +284,7 @@ const FactCard: React.FC<{ data: MatchData; fact: string; index: number }> = ({ 
 const SceneOutro: React.FC<{ data: MatchData }> = ({ data }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const t = THEMES[data.mode];
+  const t = getTheme(data);
   const inA = spring({ frame, fps, config: { damping: 200 } });
   const pulse = 1 + Math.sin(frame / 7) * 0.04;
   const arrowY = Math.abs(Math.sin(frame / 9)) * 26;
@@ -307,7 +322,7 @@ const SceneOutro: React.FC<{ data: MatchData }> = ({ data }) => {
 export const MatchFactsVideo: React.FC<MatchData> = (data) => {
   const { fps } = useVideoConfig();
   const s = (sec: number) => Math.round(sec * fps);
-  const t = THEMES[data.mode];
+  const t = getTheme(data);
 
   return (
     <AbsoluteFill style={{ backgroundColor: t.base }}>

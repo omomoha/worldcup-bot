@@ -1,53 +1,35 @@
-/**
- * deliver.mjs
- * Sends the rendered video straight to your phone via a Telegram bot.
- *
- * One-time setup (5 minutes):
- *   1. In Telegram, message @BotFather → /newbot → copy the bot token
- *   2. Open a chat with your new bot and send it any message
- *   3. Visit https://api.telegram.org/bot<TOKEN>/getUpdates in a browser
- *      and copy your "chat":{"id": ...} number
- *   4. Save both as GitHub secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
- *
- * Every morning the bot messages you the finished video + suggested caption.
- * Save the video from Telegram → post to TikTok from the app. Done.
- */
-
+/** Sends every rendered video to your phone via Telegram, each with its
+ * ready-to-paste TikTok caption. Setup: see README (BotFather token + chat id). */
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 
 const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } = process.env;
-const videoPath = process.argv[2] ?? "out/today.mp4";
+
+async function sendVideo(path, caption) {
+  const video = await readFile(path);
+  const form = new FormData();
+  form.append("chat_id", TELEGRAM_CHAT_ID);
+  form.append("caption", caption.slice(0, 1024));
+  form.append("video", new Blob([video], { type: "video/mp4" }), path.split("/").pop());
+  const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendVideo`, { method: "POST", body: form });
+  const json = await res.json();
+  if (!json.ok) throw new Error(`Telegram send failed: ${JSON.stringify(json)}`);
+}
 
 async function main() {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     console.log("ℹ️  Telegram secrets not set — skipping delivery.");
     return;
   }
-
-  const data = await readFile(new URL("../data/today.json", import.meta.url), "utf8")
-    .then(JSON.parse)
-    .catch(() => null);
-
-  // The Telegram caption IS the TikTok caption — copy it straight across.
-  const caption = data?.caption
-    ?? (data ? `${data.teamA.name} vs ${data.teamB.name} 🔥 ${data.question} #WorldCup2026 #football` : "Today's World Cup video #WorldCup2026");
-
-  const video = await readFile(videoPath);
-  const form = new FormData();
-  form.append("chat_id", TELEGRAM_CHAT_ID);
-  form.append("caption", caption.slice(0, 1024));
-  form.append("video", new Blob([video], { type: "video/mp4" }), "today.mp4");
-
-  const res = await fetch(
-    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendVideo`,
-    { method: "POST", body: form }
-  );
-  const json = await res.json();
-  if (!json.ok) throw new Error(`Telegram send failed: ${JSON.stringify(json)}`);
-  console.log("✅ Video delivered to your Telegram");
+  const matches = JSON.parse(await readFile(new URL("../data/matches.json", import.meta.url), "utf8"));
+  for (let i = 0; i < matches.length; i++) {
+    const path = `out/match${i}.mp4`;
+    if (!existsSync(path)) { console.warn(`⚠️ ${path} missing, skipping`); continue; }
+    const m = matches[i];
+    const caption = m.caption ?? `${m.teamA.name} vs ${m.teamB.name} #WorldCup2026`;
+    await sendVideo(path, caption);
+    console.log(`✅ delivered ${i + 1}/${matches.length}: ${m.teamA.name} vs ${m.teamB.name}`);
+  }
 }
 
-main().catch((e) => {
-  console.error("❌", e.message);
-  process.exit(1);
-});
+main().catch((e) => { console.error("❌", e.message); process.exit(1); });

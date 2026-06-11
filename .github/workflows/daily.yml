@@ -2,13 +2,18 @@ name: Daily World Cup video → your phone
 
 on:
   schedule:
-    - cron: "0 6 * * *" # 06:00 UTC = 07:00 WAT (your local 7am)
-  workflow_dispatch: {} # also lets you trigger a video manually any time
+    - cron: "0 6 * * *" # 06:00 UTC = 07:00 WAT — renders ALL of today's matches
+  workflow_dispatch:
+    inputs:
+      date_offset:
+        description: "Days ahead (0 = today, 1 = tomorrow)"
+        required: false
+        default: "0"
 
 jobs:
   build-and-deliver:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -20,32 +25,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Fetch today's match data
+      - name: Fetch the day's matches
         env:
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
           FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATE_OFFSET: ${{ github.event.inputs.date_offset || '0' }}
         run: npm run fetch
 
-      - name: Render video
-        run: npm run render
+      - name: Render all videos
+        run: node scripts/render-all.mjs
 
-      - name: Send video to your phone (Telegram)
+      - name: Send videos to your phone (Telegram)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: node scripts/deliver.mjs out/today.mp4
+        run: node scripts/deliver.mjs
 
-      - name: Post to TikTok (optional — skips if no keys)
-        env:
-          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
-          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
-          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
-        run: npm run post
-
-      - name: Keep a 7-day backup of the video
+      - name: Keep a 7-day backup of the videos
         uses: actions/upload-artifact@v4
         with:
-          name: today-video
-          path: out/today.mp4
+          name: match-videos
+          path: out/*.mp4
           retention-days: 7
