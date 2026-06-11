@@ -35,6 +35,14 @@ for (let i = 0; i < matches.length; i++) {
 
   if (!Array.isArray(m.facts) || m.facts.length !== 3 || m.facts.some(bad))
     errors.push(`${tag}: needs exactly 3 non-empty facts`);
+  // Layout budgets — text longer than these breaks the design
+  const LIMITS = { stat: 44, hook: 58, fact: 132, question: 46 };
+  for (const side of ["teamA", "teamB"])
+    for (const s of m[side]?.stats ?? [])
+      if (s.length > LIMITS.stat) errors.push(`${tag}: stat too long (${s.length} chars): "${s}"`);
+  if (m.hook?.length > LIMITS.hook) errors.push(`${tag}: hook too long (${m.hook.length} chars)`);
+  if (m.question?.length > LIMITS.question) errors.push(`${tag}: question too long (${m.question.length} chars)`);
+  (m.facts ?? []).forEach((f, fi) => { if (f.length > LIMITS.fact) errors.push(`${tag}: fact ${fi + 1} too long (${f.length} chars)`); });
   if (bad(m.hook)) errors.push(`${tag}: missing hook`);
   if (bad(m.question)) errors.push(`${tag}: missing question`);
   if (bad(m.caption)) errors.push(`${tag}: missing caption`);

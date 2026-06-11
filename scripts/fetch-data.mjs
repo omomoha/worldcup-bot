@@ -239,8 +239,8 @@ Respond with ONLY a JSON object, no markdown fences:
 {
   "hook": "a scroll-stopping curiosity hook, max 8 words — tension, a number, or a rivalry angle. NOT just the team names.",
   "tease": "a 3-5 word retention tease pointing at fact #3, e.g. wait for #3",
-  "statsA": ["2 short FOOTBALL stat lines about ${a}, max 7 words each, e.g. best World Cup finish, appearances, famous record"],
-  "statsB": ["2 short FOOTBALL stat lines about ${b}, max 7 words each"],
+  "statsA": ["2 short FOOTBALL stat lines about ${a}, max 5 words each (HARD limit), e.g. best finish, appearances, a record"],
+  "statsB": ["2 short FOOTBALL stat lines about ${b}, max 5 words each (HARD limit)"],
   "facts": ["3 short, verifiably TRUE football facts about these nations' World Cup history, max 20 words each, ORDERED from least to most surprising — #3 must be the jaw-dropper"],
   "question": "a comment-bait question asking for a score prediction or hot take, max 6 words",
   "quiz": {"question": "an either-or or true/false question about these teams' World Cup history, max 12 words, with a verifiably true answer", "answer": "the answer with its key fact, max 10 words"},
@@ -254,8 +254,8 @@ Respond with ONLY a JSON object, no markdown fences:
   "stage": "e.g. Final, Semi-final", "venue": "stadium, city",
   "hook": "a scroll-stopping curiosity hook, max 8 words — tension, a number, or a rivalry angle. NOT just the team names.",
   "tease": "a 3-5 word retention tease pointing at fact #3, e.g. wait for #3",
-  "statsA": ["2 short FOOTBALL stat lines about teamA, max 7 words each"],
-  "statsB": ["2 short FOOTBALL stat lines about teamB, max 7 words each"],
+  "statsA": ["2 short FOOTBALL stat lines about teamA, max 5 words each (HARD limit)"],
+  "statsB": ["2 short FOOTBALL stat lines about teamB, max 5 words each (HARD limit)"],
   "facts": ["3 short, specific, verifiably TRUE facts about that match with names/numbers, max 20 words each, ORDERED least to most surprising"],
   "question": "engagement question about the match, max 8 words",
   "caption": "TikTok caption like a real football fan typed it — casual throwback energy, 1-2 sentences plus 3-4 hashtags including #WorldCup. No quotation marks."
@@ -288,6 +288,18 @@ function pickVariant(seedStr, i) {
     quiz: ((h >> 7) % 2) === 0,
   };
 }
+
+
+// ---- Length budgets: text that fits the layout, enforced before render ----
+const LIMITS = { stat: 42, hook: 56, fact: 130, question: 44 };
+function fitLine(s, max) {
+  if (!s) return s;
+  s = s.trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max + 1).lastIndexOf(" ");
+  return s.slice(0, cut > max * 0.6 ? cut : max).trim();
+}
+const fitStats = (arr) => (arr ?? []).map((s) => fitLine(s, LIMITS.stat)).filter(Boolean);
 
 function titleLine(t) {
   return t.worldCupTitles > 0
@@ -338,8 +350,8 @@ async function main() {
       const teamA = getTeam(fixture.teamA);
       const teamB = getTeam(fixture.teamB);
       const copy = await askClaude(matchPrompt(teamA.name, teamB.name));
-      teamA.stats = [titleLine(teamA), ...(await verified(copy.statsA ?? [], `${teamA.name}'s football record`))].slice(0, 3);
-      teamB.stats = [titleLine(teamB), ...(await verified(copy.statsB ?? [], `${teamB.name}'s football record`))].slice(0, 3);
+      teamA.stats = fitStats([titleLine(teamA), ...(await verified(copy.statsA ?? [], `${teamA.name}'s football record`))]).slice(0, 3);
+      teamB.stats = fitStats([titleLine(teamB), ...(await verified(copy.statsB ?? [], `${teamB.name}'s football record`))]).slice(0, 3);
       const facts = await verified(copy.facts.slice(0, 3), `the ${teamA.name} vs ${teamB.name} World Cup matchup`);
       while (facts.length < 3) facts.push(`${teamA.name} and ${teamB.name} meet at the 2026 World Cup — ${fixture.venue}.`);
       const variant = pickVariant(todayISO() + teamA.name + teamB.name, i);
@@ -351,8 +363,8 @@ async function main() {
       } else { variant.quiz = false; }
       matches.push({
         mode: "match", skin: SKINS[i % SKINS.length], variant, quiz, date: dateStr, kickoff: fixture.kickoff, venue: fixture.venue,
-        teamA, teamB, hook: copy.hook, tease: copy.tease ?? "wait for #3 🤯",
-        facts: facts.slice(0, 3), question: copy.question,
+        teamA, teamB, hook: fitLine(copy.hook, LIMITS.hook), tease: copy.tease ?? "wait for #3 🤯",
+        facts: facts.slice(0, 3), question: fitLine(copy.question, LIMITS.question),
         caption: copy.caption ?? `${teamA.name} vs ${teamB.name} 👀 who's taking it? #WorldCup2026 #football`,
         pinnedComment: `📍 ${fixture.venue}\n🕕 Kickoff: ${fixture.kickoff}\n📅 ${dateStr}\n\nWho are you backing? 👇`,
         music,
@@ -364,15 +376,15 @@ async function main() {
     const tb = await askClaude(throwbackPrompt());
     const teamA = getTeam(tb.teamA);
     const teamB = getTeam(tb.teamB);
-    teamA.stats = [titleLine(teamA), ...(await verified(tb.statsA ?? [], `${teamA.name}'s football record`))].slice(0, 3);
-    teamB.stats = [titleLine(teamB), ...(await verified(tb.statsB ?? [], `${teamB.name}'s football record`))].slice(0, 3);
+    teamA.stats = fitStats([titleLine(teamA), ...(await verified(tb.statsA ?? [], `${teamA.name}'s football record`))]).slice(0, 3);
+    teamB.stats = fitStats([titleLine(teamB), ...(await verified(tb.statsB ?? [], `${teamB.name}'s football record`))]).slice(0, 3);
     const facts = await verified(tb.facts.slice(0, 3), `the ${tb.year} ${tb.stage} between ${teamA.name} and ${teamB.name}`);
     if (facts.length < 2) throw new Error("Throwback facts failed verification — refusing to publish uncertain content");
     matches.push({
       mode: "throwback", skin: "archive", variant: { ...pickVariant(todayISO() + teamA.name, 0), quiz: false }, quiz: null, date: dateStr, year: tb.year, scoreline: tb.scoreline, stage: tb.stage,
       kickoff: `${tb.stage} · Final score ${tb.scoreline}`, venue: tb.venue,
-      teamA, teamB, hook: tb.hook, tease: tb.tease ?? "#3 is wild 🤯",
-      facts: facts.slice(0, 3), question: tb.question,
+      teamA, teamB, hook: fitLine(tb.hook, LIMITS.hook), tease: tb.tease ?? "#3 is wild 🤯",
+      facts: facts.slice(0, 3), question: fitLine(tb.question, LIMITS.question),
       caption: tb.caption ?? `throwback to ${teamA.name} vs ${teamB.name}, ${tb.year} 🔥 #WorldCup #throwback`,
       pinnedComment: `📍 ${tb.venue}\n🏆 ${tb.stage}, ${tb.year} — final score ${tb.scoreline}\n\nWere you watching? 👇`,
       music,

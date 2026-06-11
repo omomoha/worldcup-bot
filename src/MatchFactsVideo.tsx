@@ -134,34 +134,57 @@ const SceneVersus: React.FC<{ data: MatchData }> = ({ data }) => {
     ? (top ? "polygon(0 0, 100% 0, 100% 38%, 0 62%)" : "polygon(0 62%, 100% 38%, 100% 100%, 0 100%)")
     : (top ? "polygon(0 0, 100% 0, 100% 47%, 0 53%)" : "polygon(0 53%, 100% 47%, 100% 100%, 0 100%)");
 
-  const half = (team: Team, top: boolean, slide: number) => (
-    <div
-      style={{
-        position: "absolute", inset: 0, clipPath: clip(top),
-        background: `linear-gradient(${top ? 160 : 340}deg, ${team.color}${data.mode === "throwback" ? "88" : "cc"}, ${t.base})`,
-        transform: diag
-          ? `translateX(${(top ? -1 : 1) * (1 - slide) * 1080}px)`
-          : `translateY(${(top ? -1 : 1) * (1 - slide) * 960}px)`,
-        filter: data.mode === "throwback" ? "saturate(0.7) sepia(0.25)" : undefined,
-      }}
-    >
-      <Img src={flagUrl(team.code)} style={{ position: "absolute", width: diag ? 540 : 470, borderRadius: 16, boxShadow: "0 30px 80px rgba(0,0,0,0.5)", ...(top ? { top: diag ? 190 : 150, left: 80 } : { bottom: diag ? 190 : 150, right: 80 }) }} />
-      <div style={{ position: "absolute", fontFamily: DISPLAY, color: t.text, fontSize: 104, ...(top ? { top: diag ? 540 : 470, left: diag ? 84 : 600 } : { bottom: diag ? 540 : 470, right: diag ? 84 : 600, textAlign: "right" as const }) }}>
-        {team.name.toUpperCase()}
+  // Flex-stacked layout: flag, name, and stats are siblings in a column,
+  // so longer text PUSHES neighbours instead of overlapping them.
+  const half = (team: Team, top: boolean, slide: number) => {
+    // auto-scale the name so long names ("BOSNIA AND HERZEGOVINA") shrink instead of wrapping badly
+    const nameSize = Math.max(56, Math.min(100, Math.floor(1350 / team.name.length)));
+    const colWidth = diag ? 620 : 860;
+    return (
+      <div
+        style={{
+          position: "absolute", inset: 0, clipPath: clip(top),
+          background: `linear-gradient(${top ? 160 : 340}deg, ${team.color}${data.mode === "throwback" ? "88" : "cc"}, ${t.base})`,
+          transform: diag
+            ? `translateX(${(top ? -1 : 1) * (1 - slide) * 1080}px)`
+            : `translateY(${(top ? -1 : 1) * (1 - slide) * 960}px)`,
+          filter: data.mode === "throwback" ? "saturate(0.7) sepia(0.25)" : undefined,
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            display: "flex",
+            flexDirection: top ? "column" : "column-reverse",
+            gap: 26,
+            width: colWidth,
+            ...(top
+              ? { top: diag ? 140 : 110, left: 80, alignItems: "flex-start", textAlign: "left" as const }
+              : { bottom: diag ? 140 : 110, right: 80, alignItems: "flex-end", textAlign: "right" as const }),
+          }}
+        >
+          <Img
+            src={flagUrl(team.code)}
+            style={{ width: diag ? 380 : 340, borderRadius: 14, boxShadow: "0 30px 80px rgba(0,0,0,0.5)" }}
+          />
+          <div style={{ fontFamily: DISPLAY, color: t.text, fontSize: nameSize, lineHeight: 1.02, whiteSpace: "nowrap" }}>
+            {team.name.toUpperCase()}
+          </div>
+          <div style={{ fontFamily: BODY, fontWeight: 600, color: t.text, fontSize: 33, lineHeight: 1.65, maxWidth: colWidth }}>
+            {team.stats.slice(0, 3).map((line, i) => {
+              const lineIn = spring({ frame: frame - 18 - i * 8, fps, config: { damping: 200 } });
+              return (
+                <div key={i} style={{ opacity: lineIn, transform: `translateX(${(top ? -1 : 1) * (1 - lineIn) * 120}px)` }}>
+                  {i === 0 && team.worldCupTitles > 0 ? "🏆".repeat(Math.min(team.worldCupTitles, 5)) + " " : "▸ "}
+                  {line}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
-      <div style={{ position: "absolute", fontFamily: BODY, fontWeight: 600, color: t.text, fontSize: 37, lineHeight: 1.75, ...(top ? { top: diag ? 675 : 180, left: diag ? 88 : 600 } : { bottom: diag ? 675 : 180, right: diag ? 88 : 600, textAlign: "right" as const }) }}>
-        {team.stats.slice(0, 3).map((line, i) => {
-          const lineIn = spring({ frame: frame - 18 - i * 8, fps, config: { damping: 200 } });
-          return (
-            <div key={i} style={{ opacity: lineIn, transform: `translateX(${(top ? -1 : 1) * (1 - lineIn) * 120}px)` }}>
-              {i === 0 && team.worldCupTitles > 0 ? "🏆".repeat(Math.min(team.worldCupTitles, 5)) + " " : "▸ "}
-              {line}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <AbsoluteFill style={{ backgroundColor: t.base }}>
