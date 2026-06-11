@@ -21,9 +21,8 @@ export type Team = {
   name: string;
   code: string;
   color: string;
-  capital: string;
-  population: string;
   worldCupTitles: number;
+  stats: string[]; // short football stat lines, first is the titles line
 };
 
 export type MatchData = {
@@ -172,10 +171,13 @@ const SceneVersus: React.FC<{ data: MatchData }> = ({ data }) => {
       <div style={{ position: "absolute", fontFamily: DISPLAY, color: t.text, fontSize: 110, ...(top ? { top: 560, left: 84 } : { bottom: 560, right: 84, textAlign: "right" as const }) }}>
         {team.name.toUpperCase()}
       </div>
-      <div style={{ position: "absolute", fontFamily: BODY, color: t.text, fontSize: 38, lineHeight: 1.6, opacity: 0.9, ...(top ? { top: 700, left: 88 } : { bottom: 700, right: 88, textAlign: "right" as const }) }}>
-        Capital: {team.capital}<br />
-        Population: {team.population}<br />
-        World Cup titles: {team.worldCupTitles} {"★".repeat(Math.min(team.worldCupTitles, 5))}
+      <div style={{ position: "absolute", fontFamily: BODY, fontWeight: 600, color: t.text, fontSize: 38, lineHeight: 1.7, opacity: 0.95, ...(top ? { top: 700, left: 88 } : { bottom: 700, right: 88, textAlign: "right" as const }) }}>
+        {team.stats.slice(0, 3).map((line, i) => (
+          <div key={i}>
+            {i === 0 && team.worldCupTitles > 0 ? "🏆".repeat(Math.min(team.worldCupTitles, 5)) + " " : ""}
+            {line}
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -28,9 +28,9 @@ async function main() {
     .then(JSON.parse)
     .catch(() => null);
 
-  const caption = data
-    ? `🏆 ${data.teamA.name} vs ${data.teamB.name} — ${data.date}\n\n${data.hook}\n\nSuggested caption:\n${data.teamA.name} vs ${data.teamB.name} 🔥 ${data.question} #WorldCup2026 #football #facts`
-    : "🏆 Today's World Cup video";
+  // The Telegram caption IS the TikTok caption — copy it straight across.
+  const caption = data?.caption
+    ?? (data ? `${data.teamA.name} vs ${data.teamB.name} 🔥 ${data.question} #WorldCup2026 #football` : "Today's World Cup video #WorldCup2026");
 
   const video = await readFile(videoPath);
   const form = new FormData();
