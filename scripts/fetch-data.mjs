@@ -1,81 +1,99 @@
 /**
- * fetch-data.mjs
- * Builds data/today.json for the Remotion render.
+ * fetch-data.mjs — builds data/today.json for the render.
  *
- * Pipeline:
- *   1. API-Football  -> today's World Cup fixture (league 1, season 2026)
- *   2. REST Countries -> capital, population, flag code per team
- *   3. Claude API    -> 3 punchy facts + a hook + an engagement question
+ * Fixture sources, tried in order:
+ *   1. football-data.org  (FOOTBALL_DATA_TOKEN) — free tier INCLUDES the World Cup
+ *   2. API-Football       (API_FOOTBALL_KEY)    — requires a PAID plan for current seasons
  *
- * Env vars (set in .env or GitHub Actions secrets):
- *   API_FOOTBALL_KEY   - from https://www.api-football.com (free tier OK)
- *   ANTHROPIC_API_KEY  - from https://console.anthropic.com
- *
- * If anything fails (no fixture today, missing key), the existing
- * data/today.json is left untouched so the render never breaks.
+ * If neither returns a fixture for today, the video switches to THROWBACK mode:
+ * Claude picks a specific, dated classic World Cup match and the template
+ * renders a clearly-labelled archive design — today's date is never faked.
  */
 
-import { writeFile, readFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 
-const API_FOOTBALL_KEY = process.env.API_FOOTBALL_KEY;
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const { FOOTBALL_DATA_TOKEN, API_FOOTBALL_KEY, ANTHROPIC_API_KEY } = process.env;
 const OUT = new URL("../data/today.json", import.meta.url);
 
-// Curated fallback colors per FIFA country (extend as needed)
 const TEAM_COLORS = {
   Brazil: "#FFDF00", Germany: "#DD0000", Argentina: "#75AADB", France: "#0055A4",
   England: "#CE1124", Spain: "#C60B1E", Portugal: "#006600", Netherlands: "#FF6600",
   Nigeria: "#008751", Senegal: "#00853F", Morocco: "#C1272D", Ghana: "#FCD116",
-  USA: "#3C3B6E", Mexico: "#006847", Canada: "#FF0000", Japan: "#BC002D",
+  USA: "#3C3B6E", "United States": "#3C3B6E", Mexico: "#006847", Canada: "#FF0000",
+  Japan: "#BC002D", Italy: "#008C45", Uruguay: "#7B9FD4", Croatia: "#FF0000",
+  Belgium: "#FDDA24", "South Korea": "#CD2E3A", Australia: "#FFCD00",
+};
+
+// REST Countries lookup aliases for football names
+const COUNTRY_ALIASES = {
+  USA: "United States", "Korea Republic": "South Korea", "South Korea": "Korea (Republic of)",
+  "IR Iran": "Iran", England: "United Kingdom", Scotland: "United Kingdom", Wales: "United Kingdom",
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
-async function getFixture() {
+async function fromFootballData() {
+  if (!FOOTBALL_DATA_TOKEN) return null;
+  const d = todayISO();
+  const res = await fetch(
+    `https://api.football-data.org/v4/competitions/WC/matches?dateFrom=${d}&dateTo=${d}`,
+    { headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN } }
+  );
+  if (!res.ok) { console.warn(`football-data.org: HTTP ${res.status}`); return null; }
+  const json = await res.json();
+  const m = json.matches?.find((x) => x.homeTeam?.name && x.awayTeam?.name);
+  if (!m) return null;
+  return {
+    teamA: m.homeTeam.name,
+    teamB: m.awayTeam.name,
+    kickoff: new Date(m.utcDate).toUTCString().slice(17, 22) + " GMT",
+    venue: m.venue ?? "2026 FIFA World Cup",
+  };
+}
+
+async function fromApiFootball() {
+  if (!API_FOOTBALL_KEY) return null;
   const res = await fetch(
     `https://v3.football.api-sports.io/fixtures?league=1&season=2026&date=${todayISO()}`,
     { headers: { "x-apisports-key": API_FOOTBALL_KEY } }
   );
+  if (!res.ok) { console.warn(`api-football: HTTP ${res.status}`); return null; }
   const json = await res.json();
+  if (json.errors && Object.keys(json.errors).length) {
+    console.warn("api-football errors:", JSON.stringify(json.errors));
+  }
   const fx = json.response?.[0];
-  if (!fx) throw new Error("No World Cup fixture today");
+  if (!fx) return null;
   return {
     teamA: fx.teams.home.name,
     teamB: fx.teams.away.name,
     kickoff: new Date(fx.fixture.date).toUTCString().slice(17, 22) + " GMT",
-    venue: `${fx.fixture.venue.name}, ${fx.fixture.venue.city}`,
+    venue: `${fx.fixture.venue?.name ?? ""}${fx.fixture.venue?.city ? ", " + fx.fixture.venue.city : ""}` || "2026 FIFA World Cup",
   };
 }
 
 async function getCountry(name) {
-  const res = await fetch(
-    `https://restcountries.com/v3.1/name/${encodeURIComponent(name)}?fields=cca2,capital,population`
-  );
-  const [c] = await res.json();
-  const pop = c.population >= 1e9 ? `${(c.population / 1e9).toFixed(1)}B`
-            : c.population >= 1e6 ? `${Math.round(c.population / 1e6)}M`
-            : `${Math.round(c.population / 1e3)}K`;
-  return {
-    name,
-    code: c.cca2.toLowerCase(),
-    capital: c.capital?.[0] ?? "—",
-    population: pop,
-    color: TEAM_COLORS[name] ?? "#E8B83A",
-    worldCupTitles: 0, // filled by Claude below
-  };
+  const lookup = COUNTRY_ALIASES[name] ?? name;
+  try {
+    const res = await fetch(
+      `https://restcountries.com/v3.1/name/${encodeURIComponent(lookup)}?fields=cca2,capital,population`
+    );
+    const [c] = await res.json();
+    const pop = c.population >= 1e9 ? `${(c.population / 1e9).toFixed(1)}B`
+              : c.population >= 1e6 ? `${Math.round(c.population / 1e6)}M`
+              : `${Math.round(c.population / 1e3)}K`;
+    return {
+      name, code: c.cca2.toLowerCase(),
+      capital: c.capital?.[0] ?? "—", population: pop,
+      color: TEAM_COLORS[name] ?? "#E8B83A", worldCupTitles: 0,
+    };
+  } catch {
+    return { name, code: "un", capital: "—", population: "—", color: TEAM_COLORS[name] ?? "#E8B83A", worldCupTitles: 0 };
+  }
 }
 
-async function generateCopy(teamA, teamB) {
-  const prompt = `Today's 2026 World Cup match: ${teamA.name} vs ${teamB.name}.
-Write content for a 28-second TikTok fact video. Respond with ONLY a JSON object, no markdown fences:
-{
-  "hook": "one-line hook, max 10 words",
-  "facts": ["3 short, surprising, TRUE facts about these two countries' World Cup history or football culture, each max 20 words"],
-  "question": "a fun prediction question, max 6 words",
-  "titlesA": <number of World Cup titles ${teamA.name} has won>,
-  "titlesB": <number of World Cup titles ${teamB.name} has won>
-}`;
-
+async function askClaude(prompt) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -85,7 +103,7 @@ Write content for a 28-second TikTok fact video. Respond with ONLY a JSON object
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-5",
-      max_tokens: 600,
+      max_tokens: 800,
       messages: [{ role: "user", content: prompt }],
     }),
   });
@@ -94,56 +112,71 @@ Write content for a 28-second TikTok fact video. Respond with ONLY a JSON object
   return JSON.parse(text.replace(/```json|```/g, "").trim());
 }
 
+const matchPrompt = (a, b) => `Today's 2026 World Cup match: ${a} vs ${b}.
+Write content for a 28-second TikTok fact video. Only include facts you are CERTAIN are true; prefer well-documented historical facts over recent ones. Respond with ONLY a JSON object, no markdown fences:
+{
+  "hook": "one-line hook, max 10 words",
+  "facts": ["3 short, surprising, verifiably TRUE facts about these two countries' World Cup history or football culture, each max 20 words"],
+  "question": "a fun prediction question, max 6 words",
+  "titlesA": <number of World Cup titles ${a} has won>,
+  "titlesB": <number of World Cup titles ${b} has won>
+}`;
+
+const throwbackPrompt = () => `Pick ONE iconic, well-documented World Cup match from history (any year 1930-2022). It must be a real match you are CERTAIN about. Respond with ONLY a JSON object, no markdown fences:
+{
+  "teamA": "country name",
+  "teamB": "country name",
+  "year": <year>,
+  "scoreline": "e.g. 2-1 (a.e.t.)",
+  "stage": "e.g. Final, Semi-final",
+  "venue": "stadium, city",
+  "hook": "one-line hook, max 10 words",
+  "facts": ["3 short, specific, verifiably TRUE facts about that match, each max 20 words, include names/numbers"],
+  "question": "engagement question about the match, max 8 words",
+  "titlesA": <World Cup titles teamA has won>,
+  "titlesB": <World Cup titles teamB has won>
+}`;
+
 async function main() {
-  if (!API_FOOTBALL_KEY) throw new Error("API_FOOTBALL_KEY not set");
+  if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is required");
 
-  const fixture = await getFixture();
-  const [teamA, teamB] = await Promise.all([
-    getCountry(fixture.teamA),
-    getCountry(fixture.teamB),
-  ]);
+  const music = existsSync(new URL("../public/music.mp3", import.meta.url));
+  const dateStr = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
-  let copy = {
-    hook: `${teamA.name} vs ${teamB.name} — match day.`,
-    facts: [
-      `${teamA.name} and ${teamB.name} meet today at the 2026 World Cup.`,
-      `Kickoff is at ${fixture.kickoff}.`,
-      `Venue: ${fixture.venue}.`,
-    ],
-    question: "Who wins this one?",
-    titlesA: 0,
-    titlesB: 0,
-  };
-  if (ANTHROPIC_API_KEY) {
-    try {
-      copy = await generateCopy(teamA, teamB);
-    } catch (e) {
-      console.warn("Claude copy generation failed, using template copy:", e.message);
-    }
+  let fixture = null;
+  try { fixture = await fromFootballData(); } catch (e) { console.warn("football-data.org failed:", e.message); }
+  if (!fixture) { try { fixture = await fromApiFootball(); } catch (e) { console.warn("api-football failed:", e.message); } }
+
+  let data;
+  if (fixture) {
+    const [teamA, teamB] = await Promise.all([getCountry(fixture.teamA), getCountry(fixture.teamB)]);
+    const copy = await askClaude(matchPrompt(teamA.name, teamB.name));
+    teamA.worldCupTitles = copy.titlesA ?? 0;
+    teamB.worldCupTitles = copy.titlesB ?? 0;
+    data = {
+      mode: "match", date: dateStr, kickoff: fixture.kickoff, venue: fixture.venue,
+      teamA, teamB, hook: copy.hook, facts: copy.facts.slice(0, 3), question: copy.question, music,
+    };
+    console.log(`✅ MATCH mode: ${teamA.name} vs ${teamB.name}`);
+  } else {
+    console.log("ℹ️  No fixture found from any source — switching to THROWBACK mode");
+    const tb = await askClaude(throwbackPrompt());
+    const [teamA, teamB] = await Promise.all([getCountry(tb.teamA), getCountry(tb.teamB)]);
+    teamA.worldCupTitles = tb.titlesA ?? 0;
+    teamB.worldCupTitles = tb.titlesB ?? 0;
+    data = {
+      mode: "throwback", date: dateStr, year: tb.year, scoreline: tb.scoreline,
+      stage: tb.stage, kickoff: `${tb.stage} · Final score ${tb.scoreline}`, venue: tb.venue,
+      teamA, teamB, hook: tb.hook, facts: tb.facts.slice(0, 3), question: tb.question, music,
+    };
+    console.log(`✅ THROWBACK mode: ${teamA.name} vs ${teamB.name}, ${tb.year}`);
   }
 
-  teamA.worldCupTitles = copy.titlesA ?? 0;
-  teamB.worldCupTitles = copy.titlesB ?? 0;
-
-  const data = {
-    date: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
-    kickoff: fixture.kickoff,
-    venue: fixture.venue,
-    teamA,
-    teamB,
-    hook: copy.hook,
-    facts: copy.facts.slice(0, 3),
-    question: copy.question,
-  };
-
   await writeFile(OUT, JSON.stringify(data, null, 2));
-  console.log("✅ data/today.json written:", `${teamA.name} vs ${teamB.name}`);
 }
 
-main().catch(async (e) => {
-  console.warn(`⚠️  ${e.message} — keeping existing data/today.json`);
-  // Exit 0 so the pipeline can still render evergreen/sample content,
-  // or exit 1 here instead if you prefer to skip posting on no-fixture days.
-  const existing = await readFile(OUT, "utf8").catch(() => null);
-  process.exit(existing ? 0 : 1);
+main().catch((e) => {
+  // Hard fail: better no video than a wrong one.
+  console.error(`❌ ${e.message}`);
+  process.exit(1);
 });

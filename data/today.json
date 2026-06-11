@@ -6,7 +6,7 @@
     "name": "Brazil",
     "code": "br",
     "color": "#FFDF00",
-    "capital": "Brasília",
+    "capital": "Bras\u00edlia",
     "population": "216M",
     "worldCupTitles": 5
   },
@@ -22,7 +22,9 @@
   "facts": [
     "Brazil is the only nation to play in every single World Cup since 1930.",
     "Germany has reached more World Cup finals (8) than any other country.",
-    "Their 2014 semi-final ended 7–1 — the heaviest defeat in Brazil's history."
+    "Their 2014 semi-final ended 7\u20131 \u2014 the heaviest defeat in Brazil's history."
   ],
-  "question": "Who takes this one?"
+  "question": "Who takes this one?",
+  "mode": "match",
+  "music": false
 }
