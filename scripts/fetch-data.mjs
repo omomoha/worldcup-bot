@@ -243,6 +243,7 @@ Respond with ONLY a JSON object, no markdown fences:
   "statsB": ["2 short FOOTBALL stat lines about ${b}, max 7 words each"],
   "facts": ["3 short, verifiably TRUE football facts about these nations' World Cup history, max 20 words each, ORDERED from least to most surprising — #3 must be the jaw-dropper"],
   "question": "a comment-bait question asking for a score prediction or hot take, max 6 words",
+  "quiz": {"question": "an either-or or true/false question about these teams' World Cup history, max 12 words, with a verifiably true answer", "answer": "the answer with its key fact, max 10 words"},
   "caption": "a TikTok caption written like a real football fan typed it on their phone — casual, energetic, lowercase ok, 1-2 sentences plus 3-4 hashtags including #WorldCup2026. No corporate tone, no quotation marks."
 }`;
 
@@ -273,6 +274,19 @@ async function verified(items, context) {
     }
   } catch (e) { console.warn("verification pass failed, keeping originals:", e.message); }
   return items;
+}
+
+
+// ---- Deterministic variety: hash of date+teams picks the structural variant ----
+function hashStr(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; }
+function pickVariant(seedStr, i) {
+  const h = hashStr(seedStr + i);
+  return {
+    intro: ["center", "left"][(h >> 1) % 2],
+    vs: ["diagonal", "horizontal"][(h >> 3) % 2],
+    fact: ["card", "poster"][(h >> 5) % 2],
+    quiz: ((h >> 7) % 2) === 0,
+  };
 }
 
 function titleLine(t) {
@@ -328,8 +342,15 @@ async function main() {
       teamB.stats = [titleLine(teamB), ...(await verified(copy.statsB ?? [], `${teamB.name}'s football record`))].slice(0, 3);
       const facts = await verified(copy.facts.slice(0, 3), `the ${teamA.name} vs ${teamB.name} World Cup matchup`);
       while (facts.length < 3) facts.push(`${teamA.name} and ${teamB.name} meet at the 2026 World Cup — ${fixture.venue}.`);
+      const variant = pickVariant(todayISO() + teamA.name + teamB.name, i);
+      let quiz = null;
+      if (variant.quiz && copy.quiz?.question && copy.quiz?.answer) {
+        const qok = await verified([`Q: ${copy.quiz.question} A: ${copy.quiz.answer}`], `${teamA.name} vs ${teamB.name} World Cup quiz`);
+        if (qok.length) quiz = copy.quiz;
+        else { variant.quiz = false; console.log("ℹ️ quiz dropped by verification — using a normal fact card"); }
+      } else { variant.quiz = false; }
       matches.push({
-        mode: "match", skin: SKINS[i % SKINS.length], date: dateStr, kickoff: fixture.kickoff, venue: fixture.venue,
+        mode: "match", skin: SKINS[i % SKINS.length], variant, quiz, date: dateStr, kickoff: fixture.kickoff, venue: fixture.venue,
         teamA, teamB, hook: copy.hook, tease: copy.tease ?? "wait for #3 🤯",
         facts: facts.slice(0, 3), question: copy.question,
         caption: copy.caption ?? `${teamA.name} vs ${teamB.name} 👀 who's taking it? #WorldCup2026 #football`,
@@ -348,7 +369,7 @@ async function main() {
     const facts = await verified(tb.facts.slice(0, 3), `the ${tb.year} ${tb.stage} between ${teamA.name} and ${teamB.name}`);
     if (facts.length < 2) throw new Error("Throwback facts failed verification — refusing to publish uncertain content");
     matches.push({
-      mode: "throwback", skin: "archive", date: dateStr, year: tb.year, scoreline: tb.scoreline, stage: tb.stage,
+      mode: "throwback", skin: "archive", variant: { ...pickVariant(todayISO() + teamA.name, 0), quiz: false }, quiz: null, date: dateStr, year: tb.year, scoreline: tb.scoreline, stage: tb.stage,
       kickoff: `${tb.stage} · Final score ${tb.scoreline}`, venue: tb.venue,
       teamA, teamB, hook: tb.hook, tease: tb.tease ?? "#3 is wild 🤯",
       facts: facts.slice(0, 3), question: tb.question,

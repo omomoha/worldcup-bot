@@ -36,7 +36,13 @@
     "caption": "it's actually here. opening day vibes \ud83d\udd25 who you got? #WorldCup2026 #football #matchday",
     "music": true,
     "tease": "wait for #3 \ud83e\udd2f",
-    "skin": "pitch"
+    "skin": "pitch",
+    "variant": {
+      "intro": "center",
+      "vs": "diagonal",
+      "fact": "card",
+      "quiz": false
+    }
   },
   {
     "mode": "match",
@@ -75,6 +81,16 @@
     "caption": "the co-hosts collide \ud83d\ude24 drop your score below #WorldCup2026 #football",
     "music": true,
     "tease": "wait for #3 \ud83e\udd2f",
-    "skin": "electric"
+    "skin": "electric",
+    "variant": {
+      "intro": "left",
+      "vs": "horizontal",
+      "fact": "poster",
+      "quiz": true
+    },
+    "quiz": {
+      "question": "True or false: these two have met at a World Cup before?",
+      "answer": "False \u2014 this is their first meeting"
+    }
   }
 ]
