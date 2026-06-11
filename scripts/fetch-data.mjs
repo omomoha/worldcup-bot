@@ -88,16 +88,85 @@ const TEAMS = {
 
 const DATE_OFFSET = parseInt(process.env.DATE_OFFSET ?? "0", 10);
 const targetDate = () => { const d = new Date(); d.setUTCDate(d.getUTCDate() + DATE_OFFSET); return d; };
+
+// ---- Complete FIFA-nation flag map (ISO 3166 codes for flagcdn) ----
+// Covers all member associations + common name variants from fixture APIs.
+const FLAG_CODES = {
+  // UEFA
+  "albania":"al","andorra":"ad","armenia":"am","austria":"at","azerbaijan":"az","belarus":"by",
+  "belgium":"be","bosnia and herzegovina":"ba","bosnia-herzegovina":"ba","bosnia":"ba","bulgaria":"bg",
+  "croatia":"hr","cyprus":"cy","czechia":"cz","czech republic":"cz","denmark":"dk","england":"gb-eng",
+  "estonia":"ee","faroe islands":"fo","finland":"fi","france":"fr","georgia":"ge","germany":"de",
+  "gibraltar":"gi","greece":"gr","hungary":"hu","iceland":"is","israel":"il","italy":"it",
+  "kazakhstan":"kz","kosovo":"xk","latvia":"lv","liechtenstein":"li","lithuania":"lt","luxembourg":"lu",
+  "malta":"mt","moldova":"md","monaco":"mc","montenegro":"me","netherlands":"nl","north macedonia":"mk",
+  "macedonia":"mk","northern ireland":"gb-nir","norway":"no","poland":"pl","portugal":"pt",
+  "republic of ireland":"ie","ireland":"ie","romania":"ro","russia":"ru","san marino":"sm",
+  "scotland":"gb-sct","serbia":"rs","slovakia":"sk","slovenia":"si","spain":"es","sweden":"se",
+  "switzerland":"ch","turkey":"tr","turkiye":"tr","ukraine":"ua","wales":"gb-wls",
+  // CONMEBOL
+  "argentina":"ar","bolivia":"bo","brazil":"br","chile":"cl","colombia":"co","ecuador":"ec",
+  "paraguay":"py","peru":"pe","uruguay":"uy","venezuela":"ve",
+  // CONCACAF
+  "anguilla":"ai","antigua and barbuda":"ag","aruba":"aw","bahamas":"bs","barbados":"bb","belize":"bz",
+  "bermuda":"bm","british virgin islands":"vg","canada":"ca","cayman islands":"ky","costa rica":"cr",
+  "cuba":"cu","curacao":"cw","dominica":"dm","dominican republic":"do","el salvador":"sv","grenada":"gd",
+  "guatemala":"gt","guyana":"gy","haiti":"ht","honduras":"hn","jamaica":"jm","mexico":"mx",
+  "montserrat":"ms","nicaragua":"ni","panama":"pa","puerto rico":"pr","saint kitts and nevis":"kn",
+  "saint lucia":"lc","saint vincent and the grenadines":"vc","suriname":"sr","trinidad and tobago":"tt",
+  "turks and caicos islands":"tc","united states":"us","usa":"us","us virgin islands":"vi",
+  // CAF
+  "algeria":"dz","angola":"ao","benin":"bj","botswana":"bw","burkina faso":"bf","burundi":"bi",
+  "cameroon":"cm","cape verde":"cv","cabo verde":"cv","central african republic":"cf","chad":"td",
+  "comoros":"km","congo":"cg","dr congo":"cd","congo dr":"cd","democratic republic of the congo":"cd",
+  "ivory coast":"ci","cote d'ivoire":"ci","côte d'ivoire":"ci","djibouti":"dj","egypt":"eg",
+  "equatorial guinea":"gq","eritrea":"er","eswatini":"sz","ethiopia":"et","gabon":"ga","gambia":"gm",
+  "ghana":"gh","guinea":"gn","guinea-bissau":"gw","kenya":"ke","lesotho":"ls","liberia":"lr",
+  "libya":"ly","madagascar":"mg","malawi":"mw","mali":"ml","mauritania":"mr","mauritius":"mu",
+  "morocco":"ma","mozambique":"mz","namibia":"na","niger":"ne","nigeria":"ng","rwanda":"rw",
+  "sao tome and principe":"st","senegal":"sn","seychelles":"sc","sierra leone":"sl","somalia":"so",
+  "south africa":"za","south sudan":"ss","sudan":"sd","tanzania":"tz","togo":"tg","tunisia":"tn",
+  "uganda":"ug","zambia":"zm","zimbabwe":"zw",
+  // AFC
+  "afghanistan":"af","australia":"au","bahrain":"bh","bangladesh":"bd","bhutan":"bt","brunei":"bn",
+  "cambodia":"kh","china":"cn","china pr":"cn","chinese taipei":"tw","guam":"gu","hong kong":"hk",
+  "india":"in","indonesia":"id","iran":"ir","ir iran":"ir","iraq":"iq","japan":"jp","jordan":"jo",
+  "kuwait":"kw","kyrgyzstan":"kg","kyrgyz republic":"kg","laos":"la","lebanon":"lb","macau":"mo",
+  "malaysia":"my","maldives":"mv","mongolia":"mn","myanmar":"mm","nepal":"np","north korea":"kp",
+  "korea dpr":"kp","oman":"om","pakistan":"pk","palestine":"ps","philippines":"ph","qatar":"qa",
+  "saudi arabia":"sa","singapore":"sg","south korea":"kr","korea republic":"kr","sri lanka":"lk",
+  "syria":"sy","tajikistan":"tj","thailand":"th","timor-leste":"tl","turkmenistan":"tm",
+  "united arab emirates":"ae","uae":"ae","uzbekistan":"uz","vietnam":"vn","yemen":"ye",
+  // OFC
+  "american samoa":"as","cook islands":"ck","fiji":"fj","new caledonia":"nc","new zealand":"nz",
+  "papua new guinea":"pg","samoa":"ws","solomon islands":"sb","tahiti":"pf","tonga":"to","vanuatu":"vu",
+};
+
+const normalize = (s) =>
+  s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+
 const todayISO = () => targetDate().toISOString().slice(0, 10);
 
 function getTeam(rawName) {
   const name = rawName.replace(/ U2[0-9]| W$/g, "").trim();
-  const hit = TEAMS[name] ?? TEAMS[Object.keys(TEAMS).find((k) => name.includes(k) || k.includes(name)) ?? ""];
-  if (!hit) {
-    console.warn(`⚠️ "${name}" not in built-in dataset — flag may be generic. Add it to TEAMS.`);
-    return { name, code: "un", color: "#E8B83A", worldCupTitles: 0, stats: [] };
+  // 1. Curated dataset (color + titles for major teams)
+  const curated = TEAMS[name] ?? TEAMS[Object.keys(TEAMS).find((k) => normalize(k) === normalize(name)) ?? ""];
+  // 2. Complete FIFA flag map (every nation + name variants)
+  const flagCode = curated?.code
+    ?? FLAG_CODES[normalize(name)]
+    ?? FLAG_CODES[Object.keys(FLAG_CODES).find((k) => normalize(name).includes(k) || k.includes(normalize(name))) ?? ""];
+  if (!flagCode) {
+    // 3. This should be unreachable for any real national team — fail loudly
+    //    rather than ship a generic flag.
+    throw new Error(`No flag mapping for "${name}" — add it to FLAG_CODES in scripts/fetch-data.mjs`);
   }
-  return { name, code: hit.code, color: hit.color, worldCupTitles: hit.titles, stats: [] };
+  return {
+    name,
+    code: flagCode,
+    color: curated?.color ?? "#E8B83A",
+    worldCupTitles: curated?.titles ?? 0,
+    stats: [],
+  };
 }
 
 // ---------- Fixture sources ----------
