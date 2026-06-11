@@ -33,6 +33,9 @@ jobs:
           DATE_OFFSET: ${{ github.event.inputs.date_offset || '0' }}
         run: npm run fetch
 
+      - name: Validate content before rendering (flags, facts, completeness)
+        run: node scripts/validate.mjs
+
       - name: Render all videos
         run: node scripts/render-all.mjs
 

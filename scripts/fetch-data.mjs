@@ -333,6 +333,7 @@ async function main() {
         teamA, teamB, hook: copy.hook, tease: copy.tease ?? "wait for #3 🤯",
         facts: facts.slice(0, 3), question: copy.question,
         caption: copy.caption ?? `${teamA.name} vs ${teamB.name} 👀 who's taking it? #WorldCup2026 #football`,
+        pinnedComment: `📍 ${fixture.venue}\n🕕 Kickoff: ${fixture.kickoff}\n📅 ${dateStr}\n\nWho are you backing? 👇`,
         music,
       });
       console.log(`✅ video ${i + 1}: ${teamA.name} vs ${teamB.name} [skin: ${SKINS[i % SKINS.length]}]`);
@@ -352,6 +353,7 @@ async function main() {
       teamA, teamB, hook: tb.hook, tease: tb.tease ?? "#3 is wild 🤯",
       facts: facts.slice(0, 3), question: tb.question,
       caption: tb.caption ?? `throwback to ${teamA.name} vs ${teamB.name}, ${tb.year} 🔥 #WorldCup #throwback`,
+      pinnedComment: `📍 ${tb.venue}\n🏆 ${tb.stage}, ${tb.year} — final score ${tb.scoreline}\n\nWere you watching? 👇`,
       music,
     });
     console.log(`✅ THROWBACK: ${teamA.name} vs ${teamB.name}, ${tb.year}`);

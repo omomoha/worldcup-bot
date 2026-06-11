@@ -1,0 +1,26 @@
+name: Validate only (no video, no delivery)
+on:
+  workflow_dispatch:
+    inputs:
+      date_offset:
+        description: "Days ahead (0 = today, 1 = tomorrow)"
+        required: false
+        default: "0"
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - name: Fetch the day's matches
+        env:
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATE_OFFSET: ${{ github.event.inputs.date_offset || '0' }}
+        run: npm run fetch
+      - name: Validate
+        run: node scripts/validate.mjs

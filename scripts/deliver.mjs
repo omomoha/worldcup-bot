@@ -28,6 +28,12 @@ async function main() {
     const m = matches[i];
     const caption = m.caption ?? `${m.teamA.name} vs ${m.teamB.name} #WorldCup2026`;
     await sendVideo(path, caption);
+    if (m.pinnedComment) {
+      const form = new FormData();
+      form.append("chat_id", TELEGRAM_CHAT_ID);
+      form.append("text", `📌 Pin this as your first comment:\n\n${m.pinnedComment}`);
+      await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, { method: "POST", body: form });
+    }
     console.log(`✅ delivered ${i + 1}/${matches.length}: ${m.teamA.name} vs ${m.teamB.name}`);
   }
 }
