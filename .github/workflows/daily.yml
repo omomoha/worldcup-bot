@@ -9,6 +9,10 @@ on:
         description: "Days ahead (0 = today, 1 = tomorrow)"
         required: false
         default: "0"
+      posts_only:
+        description: "Send text posts only, no video (true/false)"
+        required: false
+        default: "false"
 
 jobs:
   build-and-deliver:
@@ -37,15 +41,18 @@ jobs:
         run: node scripts/validate.mjs
 
       - name: Render all videos
+        if: ${{ github.event.inputs.posts_only != 'true' }}
         run: node scripts/render-all.mjs
 
       - name: Send videos to your phone (Telegram)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TEXT_ONLY: ${{ github.event.inputs.posts_only == 'true' && '1' || '0' }}
         run: node scripts/deliver.mjs
 
       - name: Keep a 7-day backup of the videos
+        if: ${{ github.event.inputs.posts_only != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: match-videos

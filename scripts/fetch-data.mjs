@@ -243,6 +243,7 @@ Respond with ONLY a JSON object, no markdown fences:
   "statsB": ["2 short FOOTBALL stat lines about ${b}, max 5 words each (HARD limit)"],
   "facts": ["3 short, verifiably TRUE football facts about these nations' World Cup history, max 20 words each, ORDERED from least to most surprising — #3 must be the jaw-dropper"],
   "question": "a comment-bait question asking for a score prediction or hot take, max 6 words",
+  "prediction": {"score": "a plausible scoreline with winner, e.g. 2-1 Canada — this is an opinion, pick boldly but sensibly based on relative strength", "why": "one short reason, max 8 words"},
   "quiz": {"question": "an either-or or true/false question about these teams' World Cup history, max 12 words, with a verifiably true answer", "answer": "the answer with its key fact, max 10 words"},
   "caption": "a TikTok caption written like a real football fan typed it on their phone — casual, energetic, lowercase ok, 1-2 sentences plus 3-4 hashtags including #WorldCup2026. No corporate tone, no quotation marks."
 }`;
@@ -307,6 +308,19 @@ function titleLine(t) {
     : `Chasing a first World Cup title`;
 }
 
+
+function composeTweet(m) {
+  if (m.mode === "throwback") {
+    const t = `${m.hook}\n\n${m.facts[2] ?? m.facts[0]}\n\n${m.teamA.name} vs ${m.teamB.name}, ${m.year} — ${m.scoreline}. Were you watching?`;
+    return t.length <= 280 ? t : t.slice(0, 277) + "...";
+  }
+  const pred = m.prediction?.score
+    ? `\n\n📊 My call: ${m.prediction.score}${m.prediction.why ? " — " + m.prediction.why : ""}`
+    : "";
+  const t = `${m.hook}${pred}\n\n${m.teamA.name} vs ${m.teamB.name} · ${m.kickoff} · ${m.venue}\n\nYour score? 👇 #WorldCup2026`;
+  return t.length <= 280 ? t : t.slice(0, 277) + "...";
+}
+
 async function main() {
   if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is required");
 
@@ -366,9 +380,11 @@ async function main() {
         teamA, teamB, hook: fitLine(copy.hook, LIMITS.hook), tease: copy.tease ?? "wait for #3 🤯",
         facts: facts.slice(0, 3), question: fitLine(copy.question, LIMITS.question),
         caption: copy.caption ?? `${teamA.name} vs ${teamB.name} 👀 who's taking it? #WorldCup2026 #football`,
+        prediction: copy.prediction ?? null,
         pinnedComment: `📍 ${fixture.venue}\n🕕 Kickoff: ${fixture.kickoff}\n📅 ${dateStr}\n\nWho are you backing? 👇`,
         music,
       });
+      matches[matches.length - 1].tweet = composeTweet(matches[matches.length - 1]);
       console.log(`✅ video ${i + 1}: ${teamA.name} vs ${teamB.name} [skin: ${SKINS[i % SKINS.length]}]`);
     }
   } else {
@@ -389,6 +405,7 @@ async function main() {
       pinnedComment: `📍 ${tb.venue}\n🏆 ${tb.stage}, ${tb.year} — final score ${tb.scoreline}\n\nWere you watching? 👇`,
       music,
     });
+    matches[matches.length - 1].tweet = composeTweet(matches[matches.length - 1]);
     console.log(`✅ THROWBACK: ${teamA.name} vs ${teamB.name}, ${tb.year}`);
   }
 
