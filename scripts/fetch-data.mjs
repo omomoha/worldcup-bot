@@ -221,15 +221,26 @@ async function fromTheSportsDB() {
 const pairKey = (f) => [f.teamA, f.teamB].map((s) => s.toLowerCase().trim()).sort().join("|");
 
 // ---------- Claude ----------
-async function askClaude(prompt) {
+async function askClaude(prompt, attempt = 1) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 900, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 2000, messages: [{ role: "user", content: prompt }] }),
   });
   const json = await res.json();
+  if (json.error) throw new Error(`Claude API: ${json.error.message}`);
   const text = json.content?.map((b) => b.text ?? "").join("") ?? "";
-  return JSON.parse(text.replace(/```json|```/g, "").trim());
+  // tolerate preamble/fences/truncation noise: parse the outermost {...}
+  const start = text.indexOf("{"), end = text.lastIndexOf("}");
+  try {
+    return JSON.parse(text.slice(start, end + 1));
+  } catch (e) {
+    if (attempt < 3) {
+      console.warn(`Claude response unparseable (attempt ${attempt}) — retrying...`);
+      return askClaude(prompt, attempt + 1);
+    }
+    throw new Error(`Claude returned unparseable JSON after ${attempt} attempts: ${text.slice(0, 120)}...`);
+  }
 }
 
 const RULES = `RULES: Only state things you are CERTAIN are true and well-documented. Be strictly NEUTRAL — no favoritism, no predictions stated as facts, no stereotypes about countries, cultures, or fans. Football substance only: records, finishes, scorers, streaks, dates, numbers.`;
