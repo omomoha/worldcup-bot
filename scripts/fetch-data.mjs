@@ -309,6 +309,16 @@ function titleLine(t) {
 }
 
 
+
+function topUpStats(team, opponent, mode) {
+  const backups = [
+    mode === "throwback" ? `Classic opponent: ${opponent}` : `Today's opponent: ${opponent}`,
+    `Flying the flag at the World Cup`,
+  ];
+  while (team.stats.length < 2 && backups.length) team.stats.push(fitLine(backups.shift(), LIMITS.stat));
+  return team;
+}
+
 function composeTweet(m) {
   if (m.mode === "throwback") {
     const t = `${m.hook}\n\n${m.facts[2] ?? m.facts[0]}\n\n${m.teamA.name} vs ${m.teamB.name}, ${m.year} — ${m.scoreline}. Were you watching?`;
@@ -366,6 +376,7 @@ async function main() {
       const copy = await askClaude(matchPrompt(teamA.name, teamB.name));
       teamA.stats = fitStats([titleLine(teamA), ...(await verified(copy.statsA ?? [], `${teamA.name}'s football record`))]).slice(0, 3);
       teamB.stats = fitStats([titleLine(teamB), ...(await verified(copy.statsB ?? [], `${teamB.name}'s football record`))]).slice(0, 3);
+      topUpStats(teamA, teamB.name, "match"); topUpStats(teamB, teamA.name, "match");
       const facts = await verified(copy.facts.slice(0, 3), `the ${teamA.name} vs ${teamB.name} World Cup matchup`);
       while (facts.length < 3) facts.push(`${teamA.name} and ${teamB.name} meet at the 2026 World Cup — ${fixture.venue}.`);
       const variant = pickVariant(todayISO() + teamA.name + teamB.name, i);
@@ -394,6 +405,7 @@ async function main() {
     const teamB = getTeam(tb.teamB);
     teamA.stats = fitStats([titleLine(teamA), ...(await verified(tb.statsA ?? [], `${teamA.name}'s football record`))]).slice(0, 3);
     teamB.stats = fitStats([titleLine(teamB), ...(await verified(tb.statsB ?? [], `${teamB.name}'s football record`))]).slice(0, 3);
+    topUpStats(teamA, teamB.name, "throwback"); topUpStats(teamB, teamA.name, "throwback");
     const facts = await verified(tb.facts.slice(0, 3), `the ${tb.year} ${tb.stage} between ${teamA.name} and ${teamB.name}`);
     if (facts.length < 2) throw new Error("Throwback facts failed verification — refusing to publish uncertain content");
     matches.push({
