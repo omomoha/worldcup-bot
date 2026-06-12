@@ -1,6 +1,6 @@
 import React from "react";
 import {
-  AbsoluteFill, Audio, Img, Sequence, interpolate, spring, staticFile,
+  AbsoluteFill, Audio, Img, OffthreadVideo, Sequence, interpolate, spring, staticFile,
   useCurrentFrame, useVideoConfig,
 } from "remotion";
 import { loadFont as loadAnton } from "@remotion/google-fonts/Anton";
@@ -33,6 +33,7 @@ export type MatchData = {
   quiz?: { question: string; answer: string };
   question: string; caption?: string; pinnedComment?: string;
   music?: boolean;
+  bgVideo?: string | null; // optional stock clip behind the gradient scenes
 };
 
 // ---------- Skins ----------
@@ -51,6 +52,25 @@ const flagUrl = (code: string) => `https://flagcdn.com/w640/${code}.png`;
 const T_HOOK = 3.5, T_VS = 10.0, T_FACT = 4.5, T_OUTRO = 23.5, T_END = 28.0;
 
 // ---------- Shared ----------
+
+// Live background: stock clip desaturated + tinted under the theme gradient.
+// Falls back to nothing (pure gradient) when no clip was fetched.
+const BgClip: React.FC<{ data: MatchData }> = ({ data }) => {
+  const t = getTheme(data);
+  if (!data.bgVideo) return null;
+  return (
+    <AbsoluteFill>
+      <OffthreadVideo
+        muted
+        loop
+        src={staticFile(data.bgVideo)}
+        style={{ width: "100%", height: "100%", objectFit: "cover", filter: "saturate(0.45) brightness(0.7)" }}
+      />
+      <AbsoluteFill style={{ background: t.bg, opacity: 0.78 }} />
+    </AbsoluteFill>
+  );
+};
+
 const Grain: React.FC = () => (
   <AbsoluteFill style={{ background: "repeating-linear-gradient(0deg, rgba(0,0,0,0.13) 0px, transparent 2px, transparent 5px)", mixBlendMode: "overlay", pointerEvents: "none" }} />
 );
@@ -100,6 +120,7 @@ const SceneHook: React.FC<{ data: MatchData }> = ({ data }) => {
 
   return (
     <AbsoluteFill style={{ background: t.bg, justifyContent: "center", alignItems: left ? "flex-start" : "center" }}>
+      <BgClip data={data} />
       <Drift><PitchFrame line={t.line} /></Drift>
       {left && (
         <div style={{ position: "absolute", left: 90, top: 130, bottom: 130, width: 16, background: t.accent, transform: `scaleY(${sub})`, transformOrigin: "top" }} />
@@ -199,6 +220,12 @@ const SceneVersus: React.FC<{ data: MatchData }> = ({ data }) => {
 };
 
 // ---------- Scene 3a: Fact (card or full-bleed poster) ----------
+const Flash: React.FC<{ at?: number }> = ({ at = 0 }) => {
+  const frame = useCurrentFrame();
+  const o = interpolate(frame - at, [0, 4], [0.55, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  return o > 0 ? <AbsoluteFill style={{ background: "#fff", opacity: o, zIndex: 40 }} /> : null;
+};
+
 const FactCard: React.FC<{ data: MatchData; fact: string; index: number }> = ({ data, fact, index }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -213,6 +240,7 @@ const FactCard: React.FC<{ data: MatchData; fact: string; index: number }> = ({ 
 
   return (
     <AbsoluteFill style={{ background: t.bg, justifyContent: "center", alignItems: "center" }}>
+      <BgClip data={data} />
       <Drift out={index % 2 === 1}><PitchFrame line={t.line} /></Drift>
       <div style={{ fontFamily: DISPLAY, fontSize: 120, color: t.base, background: accent, width: 170, height: 170, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", transform: `scale(${badge}) rotate(${-8 + badge * 8}deg)`, marginBottom: 50, boxShadow: `0 0 ${isFinale ? 90 : 40}px ${accent}66` }}>
         {index + 1}
@@ -230,6 +258,7 @@ const FactCard: React.FC<{ data: MatchData; fact: string; index: number }> = ({ 
           <PopWords text={fact} stagger={2} from={6} style={{ fontFamily: DISPLAY, color: t.text, fontSize: isFinale ? 76 : 68, lineHeight: 1.25, textAlign: "center" }} />
         </div>
       )}
+      <Flash />
       {t.grain && <Grain />}
     </AbsoluteFill>
   );
@@ -252,6 +281,7 @@ const QuizCard: React.FC<{ data: MatchData }> = ({ data }) => {
 
   return (
     <AbsoluteFill style={{ background: t.bg, justifyContent: "center", alignItems: "center" }}>
+      <BgClip data={data} />
       <Drift><PitchFrame line={t.line} /></Drift>
       <div style={{ fontFamily: BODY, fontWeight: 800, color: t.accent, fontSize: 44, letterSpacing: 8, marginBottom: 40, opacity: qIn }}>
         ⚡ QUICK QUIZ
@@ -269,6 +299,7 @@ const QuizCard: React.FC<{ data: MatchData }> = ({ data }) => {
           </div>
         )}
       </div>
+      <Flash at={ansStart} />
       {t.grain && <Grain />}
     </AbsoluteFill>
   );
@@ -285,6 +316,7 @@ const SceneOutro: React.FC<{ data: MatchData }> = ({ data }) => {
 
   return (
     <AbsoluteFill style={{ background: t.bg, justifyContent: "center", alignItems: "center" }}>
+      <BgClip data={data} />
       <Drift out><PitchFrame line={t.line} /></Drift>
       <div style={{ display: "flex", gap: 40, opacity: inA, filter: data.mode === "throwback" ? "saturate(0.7) sepia(0.25)" : undefined }}>
         <Img src={flagUrl(data.teamA.code)} style={{ width: 270, borderRadius: 12 }} />
