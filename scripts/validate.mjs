@@ -46,6 +46,11 @@ for (let i = 0; i < matches.length; i++) {
   if (bad(m.hook)) errors.push(`${tag}: missing hook`);
   if (bad(m.question)) errors.push(`${tag}: missing question`);
   if (bad(m.caption)) errors.push(`${tag}: missing caption`);
+  if (m.tweet) {
+    if (m.tweet.length > 280) errors.push(`${tag}: tweet too long (${m.tweet.length} chars)`);
+    for (const phrase of ["My call", "Your score?", "Who's taking it"])
+      if (m.tweet.includes(phrase)) errors.push(`${tag}: tweet contains template phrase "${phrase}"`);
+  }
   if (bad(m.venue)) errors.push(`${tag}: missing venue`);
   if (m.mode === "match" && bad(m.kickoff)) errors.push(`${tag}: missing kickoff`);
 }

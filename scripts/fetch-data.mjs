@@ -330,16 +330,44 @@ function topUpStats(team, opponent, mode) {
   return team;
 }
 
-function composeTweet(m) {
-  if (m.mode === "throwback") {
-    const t = `${m.hook}\n\n${m.facts[2] ?? m.facts[0]}\n\n${m.teamA.name} vs ${m.teamB.name}, ${m.year} — ${m.scoreline}. Were you watching?`;
-    return t.length <= 280 ? t : t.slice(0, 277) + "...";
-  }
-  const pred = m.prediction?.score
-    ? `\n\n📊 My call: ${m.prediction.score}${m.prediction.why ? " — " + m.prediction.why : ""}`
-    : "";
-  const t = `${m.hook}${pred}\n\n${m.teamA.name} vs ${m.teamB.name} · ${m.kickoff} · ${m.venue}\n\nYour score? 👇 #WorldCup2026`;
-  return t.length <= 280 ? t : t.slice(0, 277) + "...";
+function fallbackTweet(m) {
+  if (m.mode === "throwback")
+    return `${m.facts[2] ?? m.facts[0]} ${m.teamA.name} v ${m.teamB.name}, ${m.year}. still mad about this one`;
+  return `${m.hook.toLowerCase()} ${m.prediction?.score ? "going " + m.prediction.score.toLowerCase() : ""} prove me wrong`;
+}
+
+// Four rotating voices so consecutive tweets never share a shape
+const TWEET_VOICES = [
+  "HOT TAKE: lead with a bold opinion about the matchup, prediction woven in as a flex, slightly provocative, invite disagreement",
+  "STAT DROP: lead with the most surprising verified fact like you just found it, casual reaction, prediction as an afterthought",
+  "NERVOUS FAN: write like a fan who can't decide, weighing both sides, lands on the prediction reluctantly",
+  "DEADPAN: dry, understated, short sentences. state the prediction flatly like it's obvious",
+];
+
+async function generateTweet(m, i) {
+  const voice = TWEET_VOICES[(hashStr(m.date + m.teamA.name) + i) % TWEET_VOICES.length];
+  const prompt = `Write ONE tweet about this World Cup ${m.mode === "throwback" ? "classic match" : "match today"}: ${m.teamA.name} vs ${m.teamB.name}${m.mode === "throwback" ? ` (${m.year}, ${m.scoreline})` : ` (kickoff ${m.kickoff})`}.
+
+VOICE for this tweet: ${voice}
+
+You may ONLY use these verified facts/stats (do not invent anything new):
+${JSON.stringify({ facts: m.facts, statsA: m.teamA.stats, statsB: m.teamB.stats, prediction: m.prediction })}
+
+STYLE — write like a real football fan typed it on their phone:
+- under 240 characters
+- mostly lowercase is fine, fragments are fine
+- AT MOST one emoji, or none. AT MOST one hashtag, or none
+- NEVER use: "My call", "Your score?", "Who's taking it", colons-after-labels, numbered lists, em dashes as structure
+- no quotation marks around the tweet
+- the prediction (if present) is YOUR opinion, weave it in naturally
+
+Respond ONLY with JSON, no fences: {"tweet": "..."}`;
+  try {
+    const r = await askClaude(prompt);
+    const t = (r.tweet ?? "").trim();
+    if (t && t.length <= 280) return t;
+  } catch (e) { console.warn("tweet generation failed:", e.message); }
+  return fallbackTweet(m).slice(0, 280);
 }
 
 async function main() {
@@ -406,7 +434,7 @@ async function main() {
         pinnedComment: `📍 ${fixture.venue}\n🕕 Kickoff: ${fixture.kickoff}\n📅 ${dateStr}\n\nWho are you backing? 👇`,
         music,
       });
-      matches[matches.length - 1].tweet = composeTweet(matches[matches.length - 1]);
+      matches[matches.length - 1].tweet = await generateTweet(matches[matches.length - 1], i);
       console.log(`✅ video ${i + 1}: ${teamA.name} vs ${teamB.name} [skin: ${SKINS[i % SKINS.length]}]`);
     }
   } else {
@@ -428,7 +456,7 @@ async function main() {
       pinnedComment: `📍 ${tb.venue}\n🏆 ${tb.stage}, ${tb.year} — final score ${tb.scoreline}\n\nWere you watching? 👇`,
       music,
     });
-    matches[matches.length - 1].tweet = composeTweet(matches[matches.length - 1]);
+    matches[matches.length - 1].tweet = await generateTweet(matches[matches.length - 1], 0);
     console.log(`✅ THROWBACK: ${teamA.name} vs ${teamB.name}, ${tb.year}`);
   }
 
